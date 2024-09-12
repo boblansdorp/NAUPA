@@ -305,12 +305,16 @@ func fillByteArrayWithZeroes(arr []byte, length int) {
 
 func main() {
 	dir := "." // Directory to scan for .xlsx files
-
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			fmt.Printf("Error with finding .xlsx file: %s\n", path)
 			fmt.Println("Error: ", err)
 			return err
+		}
+
+		// If the current entry is a directory and it's not the root directory, skip it
+		if d.IsDir() && path != dir {
+			return filepath.SkipDir
 		}
 
 		// Ignore temporary Excel files that start with "~$"
