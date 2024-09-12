@@ -486,10 +486,9 @@ func writeRecords(filePath string) (HolderRecord, []PropertyRecord, SummaryRecor
 		return holderRecord, propertyRecords, summaryRecord, fmt.Errorf("error opening .xlsx file: %v", err)
 	}
 
-	//var companyData [][]string
-	//var data [][]string
 	var numRecords = 0
 	var numPropertyRecords = 0
+	var summPropertyAmount = 0.00
 
 	for _, sheet := range xlFile.Sheets {
 
@@ -631,7 +630,17 @@ func writeRecords(filePath string) (HolderRecord, []PropertyRecord, SummaryRecor
 
 				// Dates and numeric fields
 				copy(propertyRecord.PropStartTransCCYY[:], padOrTruncate(row.Cells[columnMap["Last Transaction Dt"]].String(), len(propertyRecord.PropStartTransCCYY)))
-				copy(propertyRecord.PropAmountReported[:], padOrTruncate(row.Cells[columnMap["Cash Reported"]].String(), len(propertyRecord.PropAmountReported)))
+
+				cashReported, err := row.Cells[columnMap["Cash Reported"]].Float()
+				if err != nil {
+					// Handle the error here, for example, log it or return from the function
+					fmt.Println("Error converting cell to float:", err)
+					panic(err)
+				}
+				summPropertyAmount += cashReported
+
+				copy(propertyRecord.PropAmountReported[:], padOrTruncate(fmt.Sprintf("%010d", int64(cashReported*100)), len(propertyRecord.PropAmountReported))) // use 10 digit padded string in cents not dollars
+
 				copy(propertyRecord.PropAmountAdvertised[:], padOrTruncate(row.Cells[columnMap["Cash Deduction"]].String(), len(propertyRecord.PropAmountAdvertised)))
 
 				// Stock and CUSIP fields
@@ -652,6 +661,17 @@ func writeRecords(filePath string) (HolderRecord, []PropertyRecord, SummaryRecor
 	}
 
 	// add a summary record
+
+	// Convert the summPropertyAmount to a 12-digit zero-padded string
+	// Multiply summPropertyAmount by 100 to account for the two decimal places
+	summPropertyAmountCents := int64(summPropertyAmount * 100)
+
+	// Convert the summPropertyAmountCents to a 12-digit zero-padded string
+	summPropertyAmountStr := fmt.Sprintf("%012d", summPropertyAmountCents)
+
+	// Copy the padded string into the SummAmountReported field
+	copy(summaryRecord.SummAmountReported[:], summPropertyAmountStr)
+
 	numRecords++ // one record for summary record
 
 	// Convert the numRecords to a 6-digit zero-padded string
@@ -824,6 +844,7 @@ func formatPropertyRecord(propertyRecord PropertyRecord) []byte {
 	buffer.Write(propertyRecord.PropEndTransDD[:])
 	buffer.Write(propertyRecord.PropType[:])
 	buffer.Write(propertyRecord.PropAmountReported[:])
+	fmt.Println("ok property amount reported...", (propertyRecord.PropAmountReported[:]))
 	buffer.Write(propertyRecord.PropDeductionType[:])
 	buffer.Write(propertyRecord.PropDeductionAmount[:])
 	buffer.Write(propertyRecord.PropAmountAdvertised[:])
