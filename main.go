@@ -11,6 +11,10 @@ import (
 	"github.com/tealeg/xlsx"
 )
 
+const softwareVersion = "0.0.1"
+const softwareCreator = "Bob Lansdorp"
+const softwareCreatorContact = "Bob Lansdorp Consulting LLC, https://github.com/boblansdorp/NAUPA"
+
 type HolderRecord struct {
 	TRCode            byte     // 1 byte, position 1
 	HolderTaxID       [9]byte  // 9 bytes, positions 2-10
@@ -270,9 +274,17 @@ func NewSummaryRecord() SummaryRecord {
 	fillByteArrayWithZeroes(record.SummSharesAdd[:], len(record.SummSharesAdd))
 	fillByteArrayWithZeroes(record.SummSharesDel[:], len(record.SummSharesDel))
 	fillByteArrayWithZeroes(record.SummSharesRemitted[:], len(record.SummSharesRemitted))
-	fillByteArrayWithZeroes(record.SummSoftwareVersion[:], len(record.SummSoftwareVersion))
-	fillByteArrayWithZeroes(record.SummCreator[:], len(record.SummCreator))
-	fillByteArrayWithZeroes(record.SummCreatorContact[:], len(record.SummCreatorContact))
+
+	// Pad or truncate the software version, creator, and contact to fit the respective fields
+	softwareVersionPadded := padOrTruncate(softwareVersion, len(record.SummSoftwareVersion))
+	softwareCreatorPadded := padOrTruncate(softwareCreator, len(record.SummCreator))
+	softwareCreatorContactPadded := padOrTruncate(softwareCreatorContact, len(record.SummCreatorContact))
+
+	// Copy the padded or truncated values into the respective fields
+	copy(record.SummSoftwareVersion[:], softwareVersionPadded)
+	copy(record.SummCreator[:], softwareCreatorPadded)
+	copy(record.SummCreatorContact[:], softwareCreatorContactPadded)
+
 	fillByteArrayWithZeroes(record.Filler[:], len(record.Filler))
 	return record
 }
@@ -698,11 +710,7 @@ func createNAUPATxtFile(fileName string, holderRecord HolderRecord, propertyReco
 	defer file.Close()
 
 	// Write the holder record
-	//fmt.Println("Writing holder record to file...", holderRecord)
 	formattedHolderRecord := formatHolderRecord(holderRecord)
-	fmt.Println("length of holder record: ", len(formattedHolderRecord))
-
-	//fmt.Println("Writing formattedHolderRecord record: ", formattedHolderRecord)
 
 	_, err = file.Write(formattedHolderRecord)
 	if err != nil {
@@ -711,11 +719,10 @@ func createNAUPATxtFile(fileName string, holderRecord HolderRecord, propertyReco
 
 	// Write each property record
 	for _, propertyRecord := range propertyRecords {
-		//fmt.Println("Writing property record to file...", propertyRecord)
-		fmt.Println("propertyRecord: ", propertyRecord)
+		// fmt.Println("Writing property record to file...", propertyRecord)
+		// fmt.Println("propertyRecord: ", propertyRecord)
 
 		formattedPropertyRecord := formatPropertyRecord(propertyRecord)
-		fmt.Println("length of property record: ", len(formattedPropertyRecord))
 
 		_, err = file.Write(formattedPropertyRecord)
 		if err != nil {
@@ -723,9 +730,7 @@ func createNAUPATxtFile(fileName string, holderRecord HolderRecord, propertyReco
 		}
 	}
 
-	//fmt.Println("Writing summary record to file...", summaryRecord)
 	formattedSummaryRecord := formatSummaryRecord(summaryRecord)
-	fmt.Println("length of formattedSummaryRecord record: ", len(formattedSummaryRecord))
 
 	_, err = file.Write(formattedSummaryRecord)
 	if err != nil {
@@ -813,7 +818,6 @@ func formatPropertyRecord(propertyRecord PropertyRecord) []byte {
 
 	// Append all the fields to the buffer one by one
 	buffer.WriteByte(propertyRecord.TRCode)
-	fmt.Println("propertyRecord.PropSequenceNumber: ", propertyRecord.PropSequenceNumber)
 	buffer.Write(propertyRecord.PropSequenceNumber[:])
 	buffer.WriteByte(propertyRecord.PropOwnerType)
 	buffer.WriteByte(propertyRecord.PropNameID)
@@ -844,7 +848,6 @@ func formatPropertyRecord(propertyRecord PropertyRecord) []byte {
 	buffer.Write(propertyRecord.PropEndTransDD[:])
 	buffer.Write(propertyRecord.PropType[:])
 	buffer.Write(propertyRecord.PropAmountReported[:])
-	fmt.Println("ok property amount reported...", (propertyRecord.PropAmountReported[:]))
 	buffer.Write(propertyRecord.PropDeductionType[:])
 	buffer.Write(propertyRecord.PropDeductionAmount[:])
 	buffer.Write(propertyRecord.PropAmountAdvertised[:])
