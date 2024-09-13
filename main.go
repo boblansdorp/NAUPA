@@ -3,14 +3,19 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
 	"github.com/tealeg/xlsx"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 const softwareVersion = "0.0.1"
@@ -484,15 +489,66 @@ var fieldMap = map[string]func(*HolderRecord, string){
 	},
 }
 
-// Helper function to pad or truncate a string to the exact length
-func padOrTruncate(value string, length int) string {
-	// If value is longer than the required length, truncate it
-	if len(value) > length {
-		return value[:length]
+// Function to check if the rune is a non-spacing mark (Mn category)
+func isMn(r rune) bool {
+	return unicode.Is(unicode.Mn, r)
+}
+
+// Helper function to convert non-ASCII characters to their nearest ASCII equivalent
+func toASCII(value string) string {
+	// Normalize the string to decompose characters (NFD form)
+	t := transform.Chain(norm.NFD, transform.RemoveFunc(isMn), norm.NFC)
+	asciiStr, _, err := transform.String(t, value)
+	if err != nil {
+		return value // Return the original string if there's an error
 	}
 
-	// If value is shorter, pad with spaces
-	return fmt.Sprintf("%-*s", length, value)
+	// Replace specific non-ASCII characters with their ASCII equivalents
+	asciiStr = replaceSpecialChars(asciiStr)
+
+	return asciiStr
+}
+
+// Replace special non-ASCII characters with ASCII equivalents
+func replaceSpecialChars(value string) string {
+	replacements := map[rune]rune{
+		'Ø': 'O', // Replace Ø with O
+		'ø': 'o', // Replace ø with o
+		'Æ': 'A', // Replace Æ with A (you could replace with AE if needed)
+		'æ': 'a', // Replace æ with a
+		'Å': 'A', // Replace Å with A
+		'å': 'a', // Replace å with a
+		'Ñ': 'N', // Replace Ñ with N
+		'ñ': 'n', // Replace ñ with n
+		'ß': 'B', // Replace ß with s
+		// Add other replacements as needed
+	}
+
+	var output strings.Builder
+	for _, r := range value {
+		if replacement, exists := replacements[r]; exists {
+			output.WriteRune(replacement)
+		} else {
+			output.WriteRune(r)
+		}
+	}
+	return output.String()
+}
+
+// Helper function to pad or truncate a string to the exact length (handling UTF-8 properly)
+func padOrTruncate(value string, length int) string {
+	// Convert to nearest ASCII equivalent
+	asciiValue := toASCII(value)
+
+	runes := []rune(asciiValue) // Convert to runes to handle UTF-8 characters correctly
+
+	// If the string is longer than the required length, truncate it
+	if len(runes) > length {
+		return string(runes[:length])
+	}
+
+	// If the string is shorter, pad with spaces
+	return fmt.Sprintf("%-*s", length, asciiValue)
 }
 
 // Map to store country names and their corresponding 3-digit Alpha-3 codes
@@ -867,7 +923,7 @@ func writeRecords(filePath string) (HolderRecord, []PropertyRecord, SummaryRecor
 					// Skip the first 4 rows
 					continue
 				}
-
+				// fmt.Println("Processing row:", row)
 				// Ensure the row has enough columns (in this case, 10 as an example)
 				if len(row.Cells) < 10 {
 					fmt.Printf("Skipping row %d due to insufficient data\n", rowIndex)
@@ -898,8 +954,15 @@ func writeRecords(filePath string) (HolderRecord, []PropertyRecord, SummaryRecor
 				copy(propertyRecord.PropType[:], padOrTruncate(row.Cells[columnMap["Property Type"]].String(), len(propertyRecord.PropType)))
 				copy(propertyRecord.PropOwnerTypeCode[:], padOrTruncate(row.Cells[columnMap["Owner1 Type"]].String(), len(propertyRecord.PropOwnerTypeCode)))
 				copy(propertyRecord.PropRelationshipCode[:], padOrTruncate(row.Cells[columnMap["Owner1 Relationship"]].String(), len(propertyRecord.PropRelationshipCode)))
-				copy(propertyRecord.PropOwnerNameLast[:], padOrTruncate(row.Cells[columnMap["Owner1 Lastname"]].String(), len(propertyRecord.PropOwnerNameLast)))
-				copy(propertyRecord.PropOwnerNameFirst[:], padOrTruncate(row.Cells[columnMap["Owner1 Firstname"]].String(), len(propertyRecord.PropOwnerNameFirst)))
+				// Use this function before copying names
+				lastname := padOrTruncate(row.Cells[columnMap["Owner1 Lastname"]].String(), len(propertyRecord.PropOwnerNameLast))
+
+				firstname := row.Cells[columnMap["Owner1 Firstname"]].String()
+
+				copy(propertyRecord.PropOwnerNameLast[:], padOrTruncate(lastname, len(propertyRecord.PropOwnerNameLast)))
+
+				copy(propertyRecord.PropOwnerNameFirst[:], padOrTruncate(firstname, len(propertyRecord.PropOwnerNameFirst)))
+
 				copy(propertyRecord.PropOwnerNameMiddle[:], padOrTruncate(row.Cells[columnMap["Owner1 Middlename"]].String(), len(propertyRecord.PropOwnerNameMiddle)))
 				copy(propertyRecord.PropOwnerAddress1[:], padOrTruncate(row.Cells[columnMap["Owner1 Address line 1"]].String(), len(propertyRecord.PropOwnerAddress1)))
 				copy(propertyRecord.PropOwnerAddress2[:], padOrTruncate(row.Cells[columnMap["Owner1 Address line 2"]].String(), len(propertyRecord.PropOwnerAddress2)))
@@ -924,6 +987,8 @@ func writeRecords(filePath string) (HolderRecord, []PropertyRecord, SummaryRecor
 				cashReported, err := row.Cells[columnMap["Cash Reported"]].Float()
 				if err != nil {
 					// Handle the error here, for example, log it or return from the function
+					fmt.Println("row.Cells[columnMap[Cash Reported]]:", row.Cells[columnMap["Cash Reported"]])
+
 					fmt.Println("Error converting cell to float:", err)
 					panic(err)
 				}
@@ -1001,7 +1066,10 @@ func createNAUPATxtFile(fileName string, holderRecord HolderRecord, propertyReco
 		// fmt.Println("propertyRecord: ", propertyRecord)
 
 		formattedPropertyRecord := formatPropertyRecord(propertyRecord)
-
+		if len(formattedPropertyRecord) != 627 {
+			return fmt.Errorf("failed to write property record with incorrect length: %d, error: %v", len(formattedPropertyRecord), err)
+		}
+		// fmt.Println("write formattedPropertyRecord: ", formattedPropertyRecord)
 		_, err = file.Write(formattedPropertyRecord)
 		if err != nil {
 			return fmt.Errorf("failed to write property record: %v", err)
@@ -1101,6 +1169,8 @@ func formatPropertyRecord(propertyRecord PropertyRecord) []byte {
 	buffer.WriteByte(propertyRecord.PropNameID)
 	buffer.Write(propertyRecord.PropOwnerNameLast[:])
 	buffer.Write(propertyRecord.PropOwnerNameFirst[:])
+	//fmt.Println("propertyRecord.PropOwnerNameFirst: ", buffer.Len(), propertyRecord.PropSequenceNumber, propertyRecord.PropOwnerNameFirst)
+
 	buffer.Write(propertyRecord.PropOwnerNameMiddle[:])
 	buffer.Write(propertyRecord.PropOwnerNamePrefix[:])
 	buffer.Write(propertyRecord.PropOwnerNameSuffix[:])
@@ -1158,7 +1228,6 @@ func formatPropertyRecord(propertyRecord PropertyRecord) []byte {
 	buffer.Write(propertyRecord.PropRelationshipCode[:])
 	buffer.Write(propertyRecord.PropOwnerTypeCode[:])
 	buffer.Write(propertyRecord.Filler[:])
-
 	// Append CR/LF (Carriage Return + Line Feed) to the buffer
 	buffer.Write([]byte{'\r', '\n'})
 
