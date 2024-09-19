@@ -531,13 +531,8 @@ func FormatPropertyRecord(propertyRecord models.PropertyRecord) []byte {
 	result := buffer.Bytes()
 
 	// Ensure the result is 625 bytes long, append spaces if needed
-	if len(result) < 625 {
+	if len(result) != 627 {
 		panic("Property record is not 625 bytes long")
-		// padding := make([]byte, 625-len(result))
-		// for i := range padding {
-		// 	padding[i] = ' ' // fill with spaces
-		// }
-		// result = append(result, padding...)
 	}
 
 	return result
