@@ -11,6 +11,7 @@ func CreateNAUPATxtFile(fileName string, holderRecord models.HolderRecord, prope
 	// Create a new file or overwrite if exists
 	file, err := os.Create(fileName)
 	if err != nil {
+		fmt.Println("Note: some virus scanners will prevent this program from running")
 		return fmt.Errorf("failed to create file: %v", err)
 	}
 	defer file.Close()
